@@ -136,6 +136,9 @@
                             <div id="statusIndicator" class="w-2 h-2 rounded-full bg-gray-400"></div>
                             <span id="statusText" class="text-gray-600">Connecting...</span>
                         </div>
+                        <button onclick="manualRefresh()" class="bg-blue-500 hover:bg-blue-600 text-white px-2 py-1 rounded text-xs font-medium transition-colors" title="Refresh data dari server">
+                            🔄 Sync
+                        </button>
                         <span class="text-sm text-gray-600" id="currentTime"></span>
                         <button onclick="logout()" class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors">
                             🚪 Keluar
@@ -288,15 +291,92 @@
                 }
             });
             
+            // Listen for absensi changes
+            onValue(ref(database, 'sms-nesama/absensi'), (snapshot) => {
+                if (snapshot.exists()) {
+                    absensiData = snapshot.val() || {};
+                    // Refresh absensi display if currently viewing
+                    if (currentKelas && document.getElementById('absensiContent') && !document.getElementById('absensiContent').classList.contains('hidden')) {
+                        updateAbsensiCount();
+                    }
+                }
+            });
+            
+            // Listen for penilaian changes
+            onValue(ref(database, 'sms-nesama/penilaian'), (snapshot) => {
+                if (snapshot.exists()) {
+                    penilaianData = snapshot.val() || [];
+                }
+            });
+            
             // Listen for kelas changes
             onValue(ref(database, 'sms-nesama/kelas'), (snapshot) => {
                 if (snapshot.exists()) {
                     const firebaseKelasData = snapshot.val() || {};
                     kelasData = { ...kelasData, ...firebaseKelasData };
+                    
+                    // Refresh any open kelas editing interface
+                    const editContent = document.getElementById('editKelasContent');
+                    if (editContent && !editContent.classList.contains('hidden')) {
+                        // Find which class is being edited and refresh it
+                        const selectedKelasSpan = document.getElementById('selectedKelas');
+                        if (selectedKelasSpan && selectedKelasSpan.textContent) {
+                            const currentEditingKelas = selectedKelasSpan.textContent;
+                            if (kelasData[currentEditingKelas]) {
+                                const safeId = currentEditingKelas.replace(/[^a-zA-Z0-9]/g, '_');
+                                const daftarSiswaElement = document.getElementById(`daftarSiswa_${safeId}`);
+                                if (daftarSiswaElement) {
+                                    daftarSiswaElement.innerHTML = loadDaftarSiswa(currentEditingKelas);
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Refresh main menu if visible (to update student counts)
+                    if (document.getElementById('mainMenu') && !document.getElementById('mainMenu').classList.contains('hidden')) {
+                        // Don't refresh entire menu, just update if we're in kelola data
+                        const dynamicContent = document.getElementById('dynamicContent');
+                        if (dynamicContent && dynamicContent.innerHTML.includes('Kelola Data Siswa')) {
+                            // We're in the kelola data section, refresh it
+                            showKelolaData();
+                        }
+                    }
                 }
             });
             
-            console.log('🔄 Real-time listeners activated');
+            // Listen for mata pelajaran changes
+            onValue(ref(database, 'sms-nesama/mataPelajaran'), (snapshot) => {
+                if (snapshot.exists()) {
+                    const firebaseMapel = snapshot.val() || [];
+                    if (firebaseMapel.length > 0) {
+                        mataPelajaran = firebaseMapel;
+                        
+                        // Refresh mata pelajaran display if currently viewing
+                        const daftarMapel = document.getElementById('daftarMapel');
+                        if (daftarMapel) {
+                            daftarMapel.innerHTML = loadDaftarMapel();
+                        }
+                    }
+                }
+            });
+            
+            // Listen for guru changes
+            onValue(ref(database, 'sms-nesama/namaGuru'), (snapshot) => {
+                if (snapshot.exists()) {
+                    const firebaseGuru = snapshot.val() || [];
+                    if (firebaseGuru.length > 0) {
+                        namaGuru = firebaseGuru;
+                        
+                        // Refresh guru display if currently viewing
+                        const daftarGuru = document.getElementById('daftarGuru');
+                        if (daftarGuru) {
+                            daftarGuru.innerHTML = loadDaftarGuru();
+                        }
+                    }
+                }
+            });
+            
+            console.log('🔄 Real-time listeners activated for all data types');
         }
         
         function loadFromLocalStorage() {
@@ -340,8 +420,12 @@
                 try {
                     await set(ref(database, `sms-nesama/${collection}`), data);
                     console.log(`📤 Data ${collection} berhasil disimpan ke shared database`);
+                    
+                    // Show sync notification
+                    showSyncNotification(`Data ${collection} tersinkron ke semua perangkat!`);
                 } catch (error) {
                     console.error(`❌ Error saving ${collection} to Firebase:`, error);
+                    showSyncNotification(`Error: Data ${collection} tidak tersimpan!`, 'error');
                     // Fallback to localStorage
                     saveToLocalStorage(collection, data);
                 }
@@ -349,6 +433,27 @@
                 // Use localStorage as fallback
                 saveToLocalStorage(collection, data);
             }
+        }
+        
+        function showSyncNotification(message, type = 'success') {
+            const notification = document.getElementById('notification');
+            const notificationText = document.getElementById('notificationText');
+            
+            notificationText.textContent = message;
+            
+            if (type === 'error') {
+                notification.style.background = '#ef4444';
+            } else {
+                notification.style.background = '#10b981';
+            }
+            
+            notification.classList.add('show');
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+                // Reset to default color
+                notification.style.background = '#10b981';
+            }, 4000);
         }
         
         function saveToLocalStorage(collection, data) {
@@ -377,9 +482,26 @@
             const statusText = document.getElementById('statusText');
             
             if (window.firebaseEnabled) {
-                indicator.className = 'w-2 h-2 rounded-full bg-green-500';
-                statusText.textContent = 'Online (Shared)';
-                statusText.className = 'text-green-600';
+                // Test Firebase connection
+                if (window.database) {
+                    // Monitor connection status
+                    const connectedRef = ref(database, '.info/connected');
+                    onValue(connectedRef, (snapshot) => {
+                        if (snapshot.val() === true) {
+                            indicator.className = 'w-2 h-2 rounded-full bg-green-500';
+                            statusText.textContent = 'Online (Shared)';
+                            statusText.className = 'text-green-600';
+                        } else {
+                            indicator.className = 'w-2 h-2 rounded-full bg-yellow-500';
+                            statusText.textContent = 'Connecting...';
+                            statusText.className = 'text-yellow-600';
+                        }
+                    });
+                } else {
+                    indicator.className = 'w-2 h-2 rounded-full bg-green-500';
+                    statusText.textContent = 'Online (Shared)';
+                    statusText.className = 'text-green-600';
+                }
             } else {
                 indicator.className = 'w-2 h-2 rounded-full bg-orange-500';
                 statusText.textContent = 'Offline (Local)';
@@ -404,6 +526,73 @@
             setTimeout(() => {
                 notification.classList.remove('show');
             }, 3000);
+        }
+        
+        // Manual refresh function
+        async function manualRefresh() {
+            if (!window.firebaseEnabled) {
+                showNotification('Mode offline - tidak dapat sync!');
+                return;
+            }
+            
+            showNotification('Menyinkronkan data...');
+            
+            try {
+                // Force reload all data from Firebase
+                await loadDataFromStorage();
+                
+                // Refresh current view if needed
+                const currentView = getCurrentView();
+                if (currentView) {
+                    refreshCurrentView(currentView);
+                }
+                
+                showNotification('Data berhasil disinkronkan!');
+            } catch (error) {
+                console.error('Manual refresh error:', error);
+                showNotification('Error saat sinkronisasi data!');
+            }
+        }
+        
+        function getCurrentView() {
+            const dynamicContent = document.getElementById('dynamicContent');
+            if (!dynamicContent || dynamicContent.innerHTML === '') return null;
+            
+            if (dynamicContent.innerHTML.includes('Agenda Kelas')) return 'agenda';
+            if (dynamicContent.innerHTML.includes('Absensi Siswa')) return 'absensi';
+            if (dynamicContent.innerHTML.includes('Penilaian Siswa')) return 'penilaian';
+            if (dynamicContent.innerHTML.includes('Rekap Data')) return 'rekap';
+            if (dynamicContent.innerHTML.includes('Kelola Data')) return 'kelola';
+            
+            return null;
+        }
+        
+        function refreshCurrentView(view) {
+            switch(view) {
+                case 'agenda':
+                    const agendaList = document.getElementById('daftarAgenda');
+                    if (agendaList) {
+                        agendaList.innerHTML = loadAgendaList();
+                    }
+                    break;
+                case 'absensi':
+                    if (currentKelas) {
+                        pilihKelas(currentKelas);
+                    }
+                    break;
+                case 'penilaian':
+                    const kelasSelect = document.getElementById('penilaianKelas');
+                    if (kelasSelect && kelasSelect.value) {
+                        loadSiswaForPenilaian();
+                    }
+                    break;
+                case 'rekap':
+                    showRekap();
+                    break;
+                case 'kelola':
+                    showKelolaData();
+                    break;
+            }
         }
 
         // Authentication
@@ -1746,5 +1935,5 @@
             showNotification('Data siswa berhasil diexport!');
         }
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'96c5a14a9271c6e5',t:'MTc1NDcyNTQ4NS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'96c5d1072786fd8d',t:'MTc1NDcyNzQ0MC4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
