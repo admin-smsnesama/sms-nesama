@@ -9,38 +9,38 @@
     <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js';
-        import { getFirestore, doc, setDoc, getDoc, collection, getDocs, deleteDoc, updateDoc, onSnapshot } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js';
+        import { getDatabase, ref, set, get, push, remove, onValue, off } from 'https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js';
         
-        // Firebase configuration - Using demo project for testing
+        // Firebase configuration - SHARED DATABASE untuk SMS NESAMA
         const firebaseConfig = {
-            apiKey: "AIzaSyDdVgKwhZl0sTTTLZ7iTmt1r3N-cmpEzfM",
-            authDomain: "demo-project-1234.firebaseapp.com",
-            projectId: "demo-project-1234",
-            storageBucket: "demo-project-1234.appspot.com",
-            messagingSenderId: "123456789",
-            appId: "1:123456789:web:abcdef123456"
+            apiKey: "AIzaSyBvn4tFvdr-9lVEKvaEVd_FjkV4PhqgM8E",
+            authDomain: "sms-nesama-shared.firebaseapp.com",
+            databaseURL: "https://sms-nesama-shared-default-rtdb.asia-southeast1.firebasedatabase.app",
+            projectId: "sms-nesama-shared",
+            storageBucket: "sms-nesama-shared.appspot.com",
+            messagingSenderId: "123456789012",
+            appId: "1:123456789012:web:abcdef123456789012"
         };
         
         // Initialize Firebase with error handling
-        let app, db;
+        let app, database;
         let firebaseEnabled = false;
         
         try {
             app = initializeApp(firebaseConfig);
-            db = getFirestore(app);
+            database = getDatabase(app);
             firebaseEnabled = true;
-            console.log('Firebase initialized successfully');
+            console.log('🔥 Firebase Realtime Database connected - SHARED MODE');
             
             // Make Firebase functions globally available
-            window.db = db;
-            window.doc = doc;
-            window.setDoc = setDoc;
-            window.getDoc = getDoc;
-            window.collection = collection;
-            window.getDocs = getDocs;
-            window.deleteDoc = deleteDoc;
-            window.updateDoc = updateDoc;
-            window.onSnapshot = onSnapshot;
+            window.database = database;
+            window.ref = ref;
+            window.set = set;
+            window.get = get;
+            window.push = push;
+            window.remove = remove;
+            window.onValue = onValue;
+            window.off = off;
         } catch (error) {
             console.warn('Firebase initialization failed, using local storage:', error);
             firebaseEnabled = false;
@@ -95,16 +95,24 @@
                 <h1 class="text-2xl font-bold text-gray-800 mb-2">🏫 SMS NESAMA</h1>
                 <p class="text-gray-600">Sistem Manajemen Sekolah</p>
                 <p class="text-sm text-gray-500">SMPN 1 Malangbong</p>
+                <div class="mt-3 p-2 bg-blue-50 rounded-lg">
+                    <p class="text-xs text-blue-700">
+                        🌐 <strong>Mode Sharing:</strong> Data tersinkron untuk semua pengguna
+                    </p>
+                    <div class="mt-2 text-xs text-gray-600">
+                        <strong>Login:</strong> admin/123 atau guru/nesama123
+                    </div>
+                </div>
             </div>
             
             <div class="space-y-4">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">Username</label>
-                    <input type="text" id="username" class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Masukkan username" value="admin" onkeypress="if(event.key==='Enter') login()">
+                    <input type="text" id="username" class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Masukkan username" onkeypress="if(event.key==='Enter') login()">
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
-                    <input type="password" id="password" class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Masukkan password" value="123" onkeypress="if(event.key==='Enter') login()">
+                    <input type="password" id="password" class="w-full px-3 py-2 bg-gray-50 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:outline-none" placeholder="Masukkan password" onkeypress="if(event.key==='Enter') login()">
                 </div>
                 <button onclick="login()" class="w-full bg-blue-500 hover:bg-blue-600 text-white py-3 px-4 rounded-lg font-medium transition-colors">
                     🔐 Masuk
@@ -126,6 +134,10 @@
                         <p class="text-sm text-gray-600">SMPN 1 Malangbong</p>
                     </div>
                     <div class="flex items-center gap-3">
+                        <div id="connectionStatus" class="flex items-center gap-1 text-xs">
+                            <div id="statusIndicator" class="w-2 h-2 rounded-full bg-gray-400"></div>
+                            <span id="statusText" class="text-gray-600">Connecting...</span>
+                        </div>
                         <span class="text-sm text-gray-600" id="currentTime"></span>
                         <button onclick="logout()" class="bg-red-500 hover:bg-red-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors">
                             🚪 Keluar
@@ -191,76 +203,102 @@
         let penilaianData = [];
         
         // Editable Data - Will be loaded from Firebase
-        let kelasData = {
-            '7A': ['Ahmad Rizki', 'Siti Nurhaliza', 'Budi Santoso', 'Rina Wati', 'Dedi Kurniawan'],
-            '7B': ['Maya Sari', 'Andi Pratama', 'Lina Marlina', 'Rudi Hermawan', 'Dewi Lestari'],
-            '8A': ['Fajar Sidik', 'Indah Permata', 'Joko Susilo', 'Kartika Sari', 'Lukman Hakim']
-        };
+        let kelasData = {};
         let mataPelajaran = [
             'Matematika', 'Bahasa Indonesia', 'Bahasa Inggris', 'IPA', 'IPS',
             'Pendidikan Agama', 'PKn', 'Seni Budaya', 'PJOK', 'Prakarya'
         ];
-        let namaGuru = [
-            'Pak Ahmad', 'Bu Siti', 'Pak Budi', 'Bu Rina', 'Pak Dedi',
-            'Bu Maya', 'Pak Andi', 'Bu Lina', 'Pak Rudi', 'Bu Dewi'
-        ];
+        let namaGuru = [];
         
-        // Data Storage Helper Functions
+        // Data Storage Helper Functions - SHARED DATABASE
         async function loadDataFromStorage() {
             if (window.firebaseEnabled) {
                 try {
+                    console.log('📥 Loading shared data from Firebase...');
+                    
                     // Load agenda data
-                    const agendaDoc = await getDoc(doc(db, 'sms-data', 'agenda'));
-                    if (agendaDoc.exists()) {
-                        agendaData = agendaDoc.data().data || [];
+                    const agendaSnapshot = await get(ref(database, 'sms-nesama/agenda'));
+                    if (agendaSnapshot.exists()) {
+                        agendaData = agendaSnapshot.val() || [];
                     }
                     
                     // Load absensi data
-                    const absensiDoc = await getDoc(doc(db, 'sms-data', 'absensi'));
-                    if (absensiDoc.exists()) {
-                        absensiData = absensiDoc.data().data || {};
+                    const absensiSnapshot = await get(ref(database, 'sms-nesama/absensi'));
+                    if (absensiSnapshot.exists()) {
+                        absensiData = absensiSnapshot.val() || {};
                     }
                     
                     // Load penilaian data
-                    const penilaianDoc = await getDoc(doc(db, 'sms-data', 'penilaian'));
-                    if (penilaianDoc.exists()) {
-                        penilaianData = penilaianDoc.data().data || [];
+                    const penilaianSnapshot = await get(ref(database, 'sms-nesama/penilaian'));
+                    if (penilaianSnapshot.exists()) {
+                        penilaianData = penilaianSnapshot.val() || [];
                     }
                     
                     // Load kelas data
-                    const kelasDoc = await getDoc(doc(db, 'sms-data', 'kelas'));
-                    if (kelasDoc.exists()) {
-                        const firebaseKelasData = kelasDoc.data().data || {};
+                    const kelasSnapshot = await get(ref(database, 'sms-nesama/kelas'));
+                    if (kelasSnapshot.exists()) {
+                        const firebaseKelasData = kelasSnapshot.val() || {};
                         // Merge with default data, Firebase data takes priority
                         kelasData = { ...kelasData, ...firebaseKelasData };
                     }
                     
                     // Load mata pelajaran
-                    const mapelDoc = await getDoc(doc(db, 'sms-data', 'mataPelajaran'));
-                    if (mapelDoc.exists()) {
-                        const firebaseMapel = mapelDoc.data().data || [];
+                    const mapelSnapshot = await get(ref(database, 'sms-nesama/mataPelajaran'));
+                    if (mapelSnapshot.exists()) {
+                        const firebaseMapel = mapelSnapshot.val() || [];
                         if (firebaseMapel.length > 0) {
                             mataPelajaran = firebaseMapel;
                         }
                     }
                     
                     // Load nama guru
-                    const guruDoc = await getDoc(doc(db, 'sms-data', 'namaGuru'));
-                    if (guruDoc.exists()) {
-                        const firebaseGuru = guruDoc.data().data || [];
+                    const guruSnapshot = await get(ref(database, 'sms-nesama/namaGuru'));
+                    if (guruSnapshot.exists()) {
+                        const firebaseGuru = guruSnapshot.val() || [];
                         if (firebaseGuru.length > 0) {
                             namaGuru = firebaseGuru;
                         }
                     }
                     
-                    console.log('Data berhasil dimuat dari Firebase');
+                    console.log('✅ Shared data loaded successfully from Firebase');
+                    
+                    // Setup real-time listeners for live updates
+                    setupRealtimeListeners();
+                    
                 } catch (error) {
-                    console.error('Error loading data from Firebase:', error);
+                    console.error('❌ Error loading data from Firebase:', error);
                     loadFromLocalStorage();
                 }
             } else {
                 loadFromLocalStorage();
             }
+        }
+        
+        // Setup real-time listeners for live data sync
+        function setupRealtimeListeners() {
+            if (!window.firebaseEnabled) return;
+            
+            // Listen for agenda changes
+            onValue(ref(database, 'sms-nesama/agenda'), (snapshot) => {
+                if (snapshot.exists()) {
+                    agendaData = snapshot.val() || [];
+                    // Refresh agenda display if currently viewing
+                    const agendaList = document.getElementById('daftarAgenda');
+                    if (agendaList) {
+                        agendaList.innerHTML = loadAgendaList();
+                    }
+                }
+            });
+            
+            // Listen for kelas changes
+            onValue(ref(database, 'sms-nesama/kelas'), (snapshot) => {
+                if (snapshot.exists()) {
+                    const firebaseKelasData = snapshot.val() || {};
+                    kelasData = { ...kelasData, ...firebaseKelasData };
+                }
+            });
+            
+            console.log('🔄 Real-time listeners activated');
         }
         
         function loadFromLocalStorage() {
@@ -299,18 +337,18 @@
         }
         
         async function saveToStorage(collection, data) {
-            // Save to Firebase if available
+            // Save to SHARED Firebase Database
             if (window.firebaseEnabled) {
                 try {
-                    await setDoc(doc(db, 'sms-data', collection), { data: data });
-                    console.log(`Data ${collection} berhasil disimpan ke Firebase`);
+                    await set(ref(database, `sms-nesama/${collection}`), data);
+                    console.log(`📤 Data ${collection} berhasil disimpan ke shared database`);
                 } catch (error) {
-                    console.error(`Error saving ${collection} to Firebase:`, error);
+                    console.error(`❌ Error saving ${collection} to Firebase:`, error);
                     // Fallback to localStorage
                     saveToLocalStorage(collection, data);
                 }
             } else {
-                // Use localStorage
+                // Use localStorage as fallback
                 saveToLocalStorage(collection, data);
             }
         }
@@ -329,9 +367,27 @@
             updateTime();
             setInterval(updateTime, 1000);
             
+            // Update connection status
+            updateConnectionStatus();
+            
             // Load data from storage on startup
             await loadDataFromStorage();
         });
+        
+        function updateConnectionStatus() {
+            const indicator = document.getElementById('statusIndicator');
+            const statusText = document.getElementById('statusText');
+            
+            if (window.firebaseEnabled) {
+                indicator.className = 'w-2 h-2 rounded-full bg-green-500';
+                statusText.textContent = 'Online (Shared)';
+                statusText.className = 'text-green-600';
+            } else {
+                indicator.className = 'w-2 h-2 rounded-full bg-orange-500';
+                statusText.textContent = 'Offline (Local)';
+                statusText.className = 'text-orange-600';
+            }
+        }
 
         function updateTime() {
             const now = new Date();
@@ -359,11 +415,12 @@
             
             console.log('Login attempt:', { username, password }); // Debug log
             
-            if (username === 'admin' && password === '123') {
-                currentUser = { username: 'admin', name: 'Administrator' };
+            if ((username === 'admin' && password === '123') || (username === 'guru' && password === 'nesama123')) {
+                const userType = username === 'admin' ? 'Administrator' : 'Guru';
+                currentUser = { username: username, name: userType };
                 document.getElementById('loginScreen').classList.add('hidden');
                 document.getElementById('mainApp').classList.remove('hidden');
-                showNotification('Login berhasil! Selamat datang di SMS NESAMA');
+                showNotification(`Login berhasil! Selamat datang di SMS NESAMA (${userType})`);
             } else {
                 showNotification('Username atau password salah!');
                 console.log('Login failed - incorrect credentials');
@@ -1691,5 +1748,5 @@
             showNotification('Data siswa berhasil diexport!');
         }
     </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'96beb46dd66cfdab',t:'MTc1NDY1Mjg2OS4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'96c5371fd4dcfd1a',t:'MTc1NDcyMTEzNi4wMDAwMDA='};var a=document.createElement('script');a.nonce='';a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
